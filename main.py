@@ -2,26 +2,26 @@ from cmu_graphics import *
 import random
 
 def onAppStart(app):
-    songURL = 'cmu://1166089/46424597/Beach+Theme+-+Super+Mario+Bros.+Wonder+OST.mp3'
+    songURL = 'Beach Song.mp3'
     app.sound = Sound(songURL)
     app.soundIsPlaying = True
-    app.surfboards = 'cmu://1166089/46424547/boards.png'
+    app.surfboards = 'Surfboards.png'
     # app.palmTree = 'cmu://1166089/46424978/856741bfee38ebdb1aec5f78ed9c713f.gif'
-    app.palmTree = 'cmu://1166089/46424523/551-5518286_palm-tree-clipart-borders-cartoon-palm-tree-transparent.png;'
-    app.drinks = 'cmu://1166089/46424467/pngtree-summer-beach-drinks-surfboards-watermelon-shell-flat-style-png-image_15561778.png'
-    app.beach = 'cmu://1166089/46424357/360_F_277079720_pRGT81JFRtcOTqDUOtuvfEKAScdXFbEv.jpg'
-    app.sign = 'cmu://1166089/46424382/pngtree-cartoon-hand-drawn-watercolor-brand-wooden-sign-png-image_551050+(1).png'
-    app.backgroundURL= 'cmu://1166089/46422960/112+TP+Background.png'
+    app.palmTree = 'Palm Tree.png'
+    app.drinks = 'Drinks.png'
+    app.beach = 'FULL BG.png'
+    app.sign = 'Wood Sign.png'
+    app.backgroundURL= 'Play BG.png'
     app.fruitCenters = []
-    app.pineapple = 'cmu://1166089/46423677/vecteezy_pineapple-fruit-cartoon-illustration-isolated-on-transparent_47130664.png'
-    app.dragonfruit = 'cmu://1166089/46423722/pngimg.com+-+pitaya_PNG39.png'
-    app.kiwi = 'cmu://1166089/46423818/vibrant-kiwi-slice-illustration-eklixauo5drmhzwt.png'
-    app.coconut = 'cmu://1166089/46423941/coconut-575780_1280.png'
-    app.orange = 'cmu://1166089/46424008/pngimg.com+-+orange_PNG751.png'
-    app.mango = 'cmu://1166089/46424029/5ul06s21m7hor9h7sw5o93w031oi.png'
-    app.banana = 'cmu://1166089/46424057/8-84869_vector-banana-png-image-download-bananas-cartoon-png.png'
-    app.flower = 'cmu://1166089/46424126/pngtree-hibiscus-flower-clipart-pink-hibiscus-flower-cartoon-vector-png-image_12157044.png'
-    app.torch = 'cmu://1166089/46424134/pngtree-burning-cartoon-torch-illustration-png-image_15615612.png'
+    app.pineapple = 'Pineapple.png'
+    app.dragonfruit = 'Dragonfruit.png'
+    app.kiwi = 'Kiwi.png'
+    app.coconut = 'Coconut.png'
+    app.orange = 'Orange.png'
+    app.mango = 'Mango.png'
+    app.banana = 'Banana.png'
+    app.flower = 'Flower.png'
+    app.torch = 'Torch.png'
     app.highScore = 0
     app.score = 0
     app.soundOn = True
@@ -48,16 +48,16 @@ def redrawAll(app):
     else:
         app.sound.pause()
     if not app.gameStarted:
-        drawImage(app.beach,0,0,height=535)
-        drawImage(app.palmTree,625,0,height=535)
-        drawImage(app.sign,60,60,width=800,height=580)
-        drawLabel('SANDBOX',475,240,size=140,font='caveat',fill='lemonChiffon',border='lemonChiffon',borderWidth=3)
-        drawRect(260,340,200,100,fill='burlyWood',border='lemonChiffon',borderWidth=5)
-        drawRect(500,340,200,100,fill='burlyWood',border='lemonChiffon',borderWidth=5)
-        drawLabel('PLAY!',360,390,font='caveat',fill='lemonChiffon',size=60,border='lemonChiffon',borderWidth=2)
-        drawLabel('INSTRUCTIONS',600,390,font='caveat',fill='lemonChiffon',size=30,border='lemonChiffon',borderWidth=2)
-        drawImage(app.drinks,-110,220,width=380,height=380)
-        drawImage(app.surfboards,720,200,width=260,height=420)
+        drawImage(app.beach,0,0,width=950,height=535)
+        # drawImage(app.palmTree,625,0,height=535)
+        # drawImage(app.sign,60,60,width=800,height=580)
+        # drawLabel('SANDBOX',475,240,size=140,font='caveat',fill='lemonChiffon',border='lemonChiffon',borderWidth=3)
+        # drawRect(260,340,200,100,fill='burlyWood',border='lemonChiffon',borderWidth=5)
+        # drawRect(500,340,200,100,fill='burlyWood',border='lemonChiffon',borderWidth=5)
+        # drawLabel('PLAY!',360,390,font='caveat',fill='lemonChiffon',size=60,border='lemonChiffon',borderWidth=2)
+        # drawLabel('INSTRUCTIONS',600,390,font='caveat',fill='lemonChiffon',size=30,border='lemonChiffon',borderWidth=2)
+        # drawImage(app.drinks,-110,220,width=380,height=380)
+        # drawImage(app.surfboards,720,200,width=260,height=420)
         if app.showInstructions:
             backgroundWidth, backgroundHeight = getImageSize(app.backgroundURL)
             drawImage(app.backgroundURL, 0, 0,
