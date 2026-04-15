@@ -1,12 +1,39 @@
 from cmu_graphics import * 
 import random
+import cv2
+import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
+import time
 
 def onAppStart(app):
+    # --- MediaPipe Setup ---
+    model_path = 'hand_landmarker.task'
+    base_options = python.BaseOptions(model_asset_path=model_path)
+    
+    # 1. Define the Callback Function inside onAppStart
+    def update_hand_position(result, output_image, timestamp_ms):
+        if result.hand_landmarks:
+            # We use app.group to allow the callback to talk to the app
+            tip = result.hand_landmarks[0][8]
+            app.handX = tip.x * app.width
+            app.handY = tip.y * app.height
+
+    # 2. Set mode to LIVE_STREAM
+    options = vision.HandLandmarkerOptions(
+        base_options=base_options,
+        running_mode=vision.RunningMode.LIVE_STREAM,
+        num_hands=1,
+        result_callback=update_hand_position # Tell it where to send the data
+    )
+    app.detector = vision.HandLandmarker.create_from_options(options)
+    # app.stepsPerSecond = 100
+    app.cap = cv2.VideoCapture(0)
+    app.handX, app.handY = 475, 260
     songURL = 'Beach Song.mp3'
     app.sound = Sound(songURL)
     app.soundIsPlaying = True
     app.surfboards = 'Surfboards.png'
-    # app.palmTree = 'cmu://1166089/46424978/856741bfee38ebdb1aec5f78ed9c713f.gif'
     app.palmTree = 'Palm Tree.png'
     app.drinks = 'Drinks.png'
     app.beach = 'FULL BG.png'
@@ -42,6 +69,18 @@ def onMousePress(app,mouseX,mouseY):
         elif (500<=mouseX<=700) and (340<=mouseY<=440):
             app.showInstructions = not app.showInstructions
 
+
+def onStep(app):
+    success, frame = app.cap.read()
+    if success:
+        frame = cv2.flip(frame, 1)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        
+        # 3. Use detect_async
+        # This sends the frame and immediately moves on. No waiting!
+        timestamp_ms = int(time.time() * 1000)
+        app.detector.detect_async(mp_image, timestamp_ms)
 def redrawAll(app):
     if app.soundIsPlaying:
         app.sound.play(loop=True)
@@ -86,6 +125,7 @@ def redrawAll(app):
         drawLabel(f'{app.score}',625,26,font='caveat',fill='lemonChiffon',size=22,border='lemonChiffon',borderWidth=1,align='center')
     drawRect(830,10,100,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
     drawLabel('SOUND',880,26,font='caveat',fill='lemonChiffon',size=22,border='lemonChiffon',borderWidth=1)
+    drawCircle(app.handX, app.handY, 10, fill='cyan', border='blue', borderWidth=2)
 
         
 def main():
