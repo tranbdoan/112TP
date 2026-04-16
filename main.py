@@ -6,69 +6,88 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import time
 
+class Fruit:
+    def __init__(self, name, image,x, y, width, height,rotate=0):
+        self.name = name
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.image = image
+        self.rotate = rotate
+    
+    def draw(self):
+        drawImage(self.image, self.x, self.y, width=self.width, height=self.height, rotateAngle=self.rotate)
+
 def onAppStart(app):
-    # --- MediaPipe Setup ---
+    # CV AND MEDIAPIPE SETUP
+    setupHandTracker(app)
+    app.cap = cv2.VideoCapture(0)
+    app.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    app.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    # GAME STATE VARIABLES
+    app.stepsPerSecond = 60
+    app.handX, app.handY = 475, 260
+    app.score = 0   
+    app.highScore = 0
+    app.gameStarted = False
+    app.showInstructions = False
+    app.gameOver = False
+    app.soundIsPlaying = True
+
+    # BG AND UI
+    app.beach = 'FULL BG.png'
+    app.playBG = 'Play BG.png'
+    app.sound = Sound('Beach Song.mp3')
+
+    # FRUITS AND DECOR
+    app.fruits = [
+        Fruit('pineapple', 'Pineapple.png', 200, 50, 100, 170),
+        Fruit('dragonfruit', 'Dragonfruit.png', 40, 300, 80, 80),
+        Fruit('kiwi', 'Kiwi.png', 550, 200, 70, 70),
+        Fruit('coconut', 'Coconut.png', 400, 300, 60, 60),
+        Fruit('orange', 'Orange.png', 500, 400, 70, 70),
+        Fruit('mango', 'Mango.png', 250, 400, 60, 80),
+        Fruit('banana', 'Banana.png', 350, 200, 80, 80),
+        Fruit('flower', 'Flower.png', 425, 140, 90, 90),
+        Fruit('torch', 'Torch.png', 780, 150, 150, 150, rotate=-45)
+    ]
+
+def setupHandTracker(app):
     model_path = 'hand_landmarker.task'
     base_options = python.BaseOptions(model_asset_path=model_path)
-    
-    # 1. Define the Callback Function inside onAppStart
     def update_hand_position(result, output_image, timestamp_ms):
         if result.hand_landmarks:
-            # We use app.group to allow the callback to talk to the app
             tip = result.hand_landmarks[0][8]
-            app.handX = tip.x * app.width
-            app.handY = tip.y * app.height
-
-    # 2. Set mode to LIVE_STREAM
+            targetX = tip.x * app.width
+            targetY = tip.y * app.height
+            app.handX += (targetX - app.handX) * 0.5
+            app.handY += (targetY - app.handY) * 0.5
     options = vision.HandLandmarkerOptions(
         base_options=base_options,
         running_mode=vision.RunningMode.LIVE_STREAM,
         num_hands=1,
-        result_callback=update_hand_position # Tell it where to send the data
+        min_hand_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+        result_callback=update_hand_position
     )
     app.detector = vision.HandLandmarker.create_from_options(options)
-    # app.stepsPerSecond = 100
-    app.cap = cv2.VideoCapture(0)
-    app.handX, app.handY = 475, 260
-    songURL = 'Beach Song.mp3'
-    app.sound = Sound(songURL)
-    app.soundIsPlaying = True
-    app.surfboards = 'Surfboards.png'
-    app.palmTree = 'Palm Tree.png'
-    app.drinks = 'Drinks.png'
-    app.beach = 'FULL BG.png'
-    app.sign = 'Wood Sign.png'
-    app.backgroundURL= 'Play BG.png'
-    app.fruitCenters = []
-    app.pineapple = 'Pineapple.png'
-    app.dragonfruit = 'Dragonfruit.png'
-    app.kiwi = 'Kiwi.png'
-    app.coconut = 'Coconut.png'
-    app.orange = 'Orange.png'
-    app.mango = 'Mango.png'
-    app.banana = 'Banana.png'
-    app.flower = 'Flower.png'
-    app.torch = 'Torch.png'
-    app.highScore = 0
-    app.score = 0
-    app.soundOn = True
-    app.gameStarted = False
-    app.showInstructions = False
-    app.gameOver = False
-    app.speed = None
 
 def onMousePress(app,mouseX,mouseY):
-    if (830<=mouseX<=930) and (10<=mouseY<=45):
+    if inBounds(mouseX,mouseY,830,10,100,35):
         app.soundIsPlaying = not app.soundIsPlaying
-    elif (20<=mouseX<=120) and (10<=mouseY<=45):
+    elif inBounds(mouseX,mouseY,20,10,100,35):
         app.gameStarted = False
         app.showInstructions = False
-    elif app.gameStarted == False:
-        if (260<=mouseX<=460) and (340<=mouseY<=440):
+    elif not app.gameStarted:
+        if inBounds(mouseX,mouseY,260,340,200,100):
             app.gameStarted = True
-        elif (500<=mouseX<=700) and (340<=mouseY<=440):
+        elif inBounds(mouseX,mouseY,500,340,200,100):
             app.showInstructions = not app.showInstructions
 
+def inBounds(mouseX,mouseY,x,y,width,height):
+    return (x<=mouseX<=x+width) and (y<=mouseY<=y+height)
 
 def onStep(app):
     success, frame = app.cap.read()
@@ -76,11 +95,16 @@ def onStep(app):
         frame = cv2.flip(frame, 1)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        
-        # 3. Use detect_async
-        # This sends the frame and immediately moves on. No waiting!
         timestamp_ms = int(time.time() * 1000)
         app.detector.detect_async(mp_image, timestamp_ms)
+
+def drawButtons(app):
+    drawRect(830,10,100,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
+    drawLabel('SOUND',880,26,font='caveat',fill='lemonChiffon',size=22,border='lemonChiffon',borderWidth=1)
+    if app.gameStarted or app.showInstructions:
+        drawRect(20,10,100,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
+        drawLabel('HOME',70,26,font='caveat',fill='lemonChiffon',size=22,border='lemonChiffon',borderWidth=1)
+
 def redrawAll(app):
     if app.soundIsPlaying:
         app.sound.play(loop=True)
@@ -88,46 +112,23 @@ def redrawAll(app):
         app.sound.pause()
     if not app.gameStarted:
         drawImage(app.beach,0,0,width=950,height=535)
-        # drawImage(app.palmTree,625,0,height=535)
-        # drawImage(app.sign,60,60,width=800,height=580)
-        # drawLabel('SANDBOX',475,240,size=140,font='caveat',fill='lemonChiffon',border='lemonChiffon',borderWidth=3)
-        # drawRect(260,340,200,100,fill='burlyWood',border='lemonChiffon',borderWidth=5)
-        # drawRect(500,340,200,100,fill='burlyWood',border='lemonChiffon',borderWidth=5)
-        # drawLabel('PLAY!',360,390,font='caveat',fill='lemonChiffon',size=60,border='lemonChiffon',borderWidth=2)
-        # drawLabel('INSTRUCTIONS',600,390,font='caveat',fill='lemonChiffon',size=30,border='lemonChiffon',borderWidth=2)
-        # drawImage(app.drinks,-110,220,width=380,height=380)
-        # drawImage(app.surfboards,720,200,width=260,height=420)
         if app.showInstructions:
-            backgroundWidth, backgroundHeight = getImageSize(app.backgroundURL)
-            drawImage(app.backgroundURL, 0, 0,
-                  width=backgroundWidth//1.01, height=backgroundHeight//1.15)
-            drawRect(20,10,100,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
-            drawLabel('HOME',70,26,font='caveat',fill='lemonChiffon',size=22,border='lemonChiffon',borderWidth=1)
+            drawImage(app.playBG, 0, 0, width=app.width, height=app.height)
             drawLabel('HOW TO PLAY:',470,95,font='caveat',size = 70,fill='saddleBrown',border='saddleBrown',borderWidth=1)
     else:
-        backgroundWidth, backgroundHeight = getImageSize(app.backgroundURL)
-        drawImage(app.backgroundURL, 0, 0,
-              width=backgroundWidth//1.01, height=backgroundHeight//1.15)
-        drawImage(app.pineapple, 200,50,  width=100, height=100)
-        drawImage(app.dragonfruit,40,300,width=65,height=65)
-        drawImage(app.kiwi,550,200,width=45,height=45)
-        drawImage(app.coconut,400,300,width = 50,height =50)
-        drawImage(app.orange,500,400,width=50,height=50)
-        drawImage(app.mango,250,400,width=80,height=60,rotateAngle=-20)
-        drawImage(app.banana,350,200,width=55,height=55)
-        drawImage(app.flower,425,140,width = 60,height=60)
-        drawImage(app.torch,780,150,width=120,height=120,rotateAngle=-45)
-        drawRect(20,10,100,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
-        drawLabel('HOME',70,26,font='caveat',fill='lemonChiffon',size=22,border='lemonChiffon',borderWidth=1,align='center')
+        drawImage(app.playBG, 0, 0, width=app.width, height=app.height)
+        for fruit in app.fruits:
+            fruit.draw()
+
+        drawCircle(app.handX, app.handY, 8, fill=gradient('mediumVioletRed', 'fuchsia'),border='pink',borderWidth=1)
+
         drawRect(250,10,150,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
         drawLabel(f'HIGH: {app.highScore}',295,26,font='caveat',fill='lemonChiffon',size=22,border='lemonChiffon',borderWidth=1,align='center')
         drawRect(550,10,150,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
         drawLabel(f'{app.score}',625,26,font='caveat',fill='lemonChiffon',size=22,border='lemonChiffon',borderWidth=1,align='center')
-    drawRect(830,10,100,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
-    drawLabel('SOUND',880,26,font='caveat',fill='lemonChiffon',size=22,border='lemonChiffon',borderWidth=1)
-    drawCircle(app.handX, app.handY, 10, fill='cyan', border='blue', borderWidth=2)
+        drawCircle(app.handX, app.handY, 8, fill=gradient('mediumVioletRed', 'fuchsia'),border='pink',borderWidth=1)
+    drawButtons(app)
 
-        
 def main():
     runApp(width=950,height=535)
 main()
