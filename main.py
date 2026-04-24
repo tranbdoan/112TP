@@ -1,5 +1,6 @@
 from cmu_graphics import * 
 import random
+# Used AI (Gemini 3.0) to help write lines 4-8 for camera tracking setup
 import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
@@ -50,13 +51,13 @@ def onAppStart(app):
     app.controller = 'hand'
     app.gameMode = 'classic'
 
-    # CV AND MEDIAPIPE SETUP (USED AI - GEMINI) - Lines 44-47
+# Used AI (Claude Sonnet 4.6) to help write following setupHandTracker function abd camera on/off features (lines 55-59)
     setupHandTracker(app)
     if app.controller == 'hand':
         enableCamera(app)
     else:
         app.cap = None
-    # app.stepsPerSecond = 60
+
     app.steps = 0
     app.highScore = 0
     app.soundIsPlaying = True
@@ -108,7 +109,7 @@ def restart(app):
         app.remaining = dict(app.targets)
         app.challengeWin = False
 
-# Following function used AI (Gemini)
+# Following function used AI (Claude Sonnet 4.6)
 def setupHandTracker(app):
     model_path = 'hand_landmarker.task'
     base_options = python.BaseOptions(model_asset_path=model_path)
@@ -142,6 +143,7 @@ def updateHandTracking(app):
     app.trail.append((app.cx,app.cy))
     if len(app.trail) > 6:
         app.trail.pop(0)
+    # Rest of the function used AI (Gemini 3.0) to write (lines 147-153)
     success, frame = app.cap.read()
     if success:
         frame = cv2.flip(frame, 1)
@@ -172,6 +174,7 @@ def updateMouseMove(app,mouseX,mouseY):
             app.trail.pop(0)
 
 def updateSlicedFruits(app):
+    # I wrote the code but I used some AI (Claude Sonnet 4.6) to help debug this function
     for fruit in app.slicedFruits:
         fruit.rightHalf['dy'] += 0.5
         fruit.leftHalf['dy'] += 0.5
@@ -501,6 +504,7 @@ def classicMode_onStep(app):
                         app.sloMo = True
                         app.sloMoFactor = 0.5
                     else:
+                        # Used some AI (Gemini 3.0) to debug the movement of the fruit halves
                         fruit.rightHalf['x'] = fruit.x
                         fruit.rightHalf['y'] = fruit.y
                         fruit.leftHalf['x'] = fruit.x   
@@ -614,6 +618,7 @@ def challengeMode_onStep(app):
                         app.sliceSound.play()
             app.unslicedFruits = [fruit for fruit in app.unslicedFruits
                                 if fruit.isLegal(app) and not fruit.sliced]
+            # used some AI (Claude Sonnet 4.6) to figure out how to utilize the if all statement in the following line (622)
             if all(v == 0 for v in app.remaining.values()):
                 app.gameOver = True
                 app.challengeWin = True
@@ -623,7 +628,7 @@ def challengeMode_onStep(app):
                 else:
                     app.challengeLoseSound.play()
 
-# Following function used AI to help create loop to draw fruits (Claude Sonnet 4.6)
+# Following function used some AI to help create loop to draw fruits (Claude Sonnet 4.6)
 def drawChallengeLeft(app):
     fruits = ['pineapple', 'dragonfruit', 'kiwi', 'coconut', 
               'orange', 'mango', 'banana']
