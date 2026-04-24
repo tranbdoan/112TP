@@ -38,16 +38,25 @@ class Fruit:
     def isLegal(self,app):
         return self.y<app.height+75
 
+    def splatterColor(self):
+        colorMap = {'pineapple':'Yellow','banana':'Yellow','kiwi':'Green','coconut':'White',
+                    'dragonfruit': 'Pink','orange':'Orange','mango':'Orange'}
+        return colorMap[self.name]
+
 def onAppStart(app):
     app.showFontWarnings = False
+    app.width = 950
+    app.height = 535
+    app.controller = 'hand'
+    app.gameMode = 'classic'
+
     # CV AND MEDIAPIPE SETUP (USED AI - GEMINI) - Lines 44-47
     setupHandTracker(app)
-    app.cap = cv2.VideoCapture(0)
-    app.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    app.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-    restart(app)
-    app.stepsPerSecond = 60
+    if app.controller == 'hand':
+        enableCamera(app)
+    else:
+        app.cap = None
+    # app.stepsPerSecond = 60
     app.steps = 0
     app.highScore = 0
     app.soundIsPlaying = True
@@ -59,28 +68,45 @@ def onAppStart(app):
     app.sliceSound = Sound('SliceSound.mp3')
     app.torchSound = Sound('TorchSound.mp3')
     app.flowerSound = Sound('FlowerSound.mp3')
-    app.width = 950
-    app.height = 535
+    app.challengeLoseSound = Sound('ChallengeLoseSound.mp3')
     app.spawnRate = 0.07
     app.sloMo = False
     app.sloMoTimer = 0  
     app.sloMoFactor = 1
-    app.controller = 'hand'
-    app.gameMode = 'classic'
     app.hitTorch = False
     app.hitTorchTimer = 0
     app.sound.play(loop=True)
-    app.challengeStepCounter = 0
+    app.fruitData = {'pineapple': ('Pineapple.png', 100, 170),
+                 'dragonfruit': ('Dragonfruit.png', 80, 80),
+                 'kiwi': ('Kiwi.png', 70, 70),
+                 'coconut': ('Coconut.png', 60, 60),
+                 'orange': ('Orange.png', 70, 70),
+                 'mango': ('Mango.png', 60, 80),
+                 'banana': ('Banana.png', 80, 80),
+                 'flower': ('Flower.png', 90, 90),
+                 'torch': ('Torch.png', 150, 150)}
+    restart(app)
 
 def restart(app):
     app.cx, app.cy = app.width/2, app.height/2
     app.targetHandCoords = [app.width/2, app.height/2]
     app.trail = []
-    app.score = 0   
     app.gameOver = False
-    app.livesLeft = 3
     app.unslicedFruits = []
     app.slicedFruits = []
+    app.fruitSplatters = []
+    app.missedFruits = []
+    app.extraFruitHits = []
+    app.countdownTimer = 5
+    app.countdownStepCounter = 0
+    app.livesLeft = 3
+    app.score = 0
+    if app.gameMode == 'challenge':
+        app.challengeTimer = 30
+        app.challengeStepCounter = 0
+        app.targets = {fruit: random.randint(1,4) for fruit in app.fruitData if fruit not in ['flower','torch']}
+        app.remaining = dict(app.targets)
+        app.challengeWin = False
 
 # Following function used AI (Gemini)
 def setupHandTracker(app):
@@ -101,8 +127,34 @@ def setupHandTracker(app):
         )
     app.detector = vision.HandLandmarker.create_from_options(options)
 
+# Next 2 functions (lines 131-137) used Claude 4.6 Sonnet to help write
+def enableCamera(app):
+    app.cap = cv2.VideoCapture(0)
+    app.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+    app.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+
+def disableCamera(app):
+    app.cap.release()
+
+def updateHandTracking(app):
+    app.cx += (app.targetHandCoords[0] - app.cx) * 0.5
+    app.cy += (app.targetHandCoords[1] - app.cy) * 0.5
+    app.trail.append((app.cx,app.cy))
+    if len(app.trail) > 6:
+        app.trail.pop(0)
+    success, frame = app.cap.read()
+    if success:
+        frame = cv2.flip(frame, 1)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        timestamp_ms = int(time.time() * 1000)
+        app.detector.detect_async(mp_image, timestamp_ms)
+
 def inBounds(mouseX,mouseY,x,y,width,height):
     return (x<=mouseX<=x+width) and (y<=mouseY<=y+height)
+
+def distance(x1, y1, x2, y2):
+    return ((x2 - x1)**2 + (y2 - y1)**2) ** 0.5
 
 def toggleSound(app):
     app.soundIsPlaying = not app.soundIsPlaying
@@ -110,6 +162,14 @@ def toggleSound(app):
         app.sound.play(loop=True)
     else:
         app.sound.pause()
+
+def updateMouseMove(app,mouseX,mouseY):
+    if app.controller == 'mouse':
+        app.cx = mouseX
+        app.cy = mouseY
+        app.trail.append((mouseX,mouseY))
+        if len(app.trail) > 6:
+            app.trail.pop(0)
 
 def updateSlicedFruits(app):
     for fruit in app.slicedFruits:
@@ -123,19 +183,22 @@ def updateSlicedFruits(app):
         fruit.leftHalf['opacity'] = max(0, fruit.leftHalf['opacity'] - 2)
     app.slicedFruits = [fruit for fruit in app.slicedFruits if fruit.rightHalf['opacity'] > 0]
 
-def distance(x1, y1, x2, y2):
-    return ((x2 - x1)**2 + (y2 - y1)**2) ** 0.5
+def updateFruitSplatters(app):
+    updated = []
+    for fruit in app.fruitSplatters:
+        #fruit[3] = opacity
+        fruit[3] = max(0,fruit[3]-2)      
+        if fruit[3] > 0:
+            updated.append(fruit)
+    app.fruitSplatters = updated
+
+def updateMissedFruits(app):
+    app.missedFruits = [[x,y,max(0,opacity-5)] for x,y,opacity in app.missedFruits if opacity>0]
+
+def updateExtraFruitHits(app):
+    app.extraFruitHits = [[x,y,max(0,opacity-5)] for x,y,opacity in app.extraFruitHits if opacity>0]
 
 def loadNextFruit(app):
-    fruits = {'pineapple': ('Pineapple.png',100, 170), 
-              'dragonfruit': ('Dragonfruit.png', 80, 80), 
-              'kiwi': ('Kiwi.png', 70, 70),
-              'coconut': ('Coconut.png', 60, 60),
-              'orange': ('Orange.png', 70, 70),
-              'mango': ('Mango.png', 60, 80),
-              'banana': ('Banana.png',80, 80),
-              'flower': ('Flower.png', 90, 90),
-              'torch': ('Torch.png', 150, 150)}
     flowerChance = 0.02
     torchChance = min(0.03 + app.score/100 * 0.03, 0.40)
     chance = random.random()
@@ -144,9 +207,18 @@ def loadNextFruit(app):
     elif chance < flowerChance + torchChance:
         name = 'torch'
     else:
-        normalFruits = [fruit for fruit in fruits if fruit not in ['flower', 'torch']]
+        normalFruits = [fruit for fruit in app.fruitData if fruit not in ['flower', 'torch']]
         name = random.choice(normalFruits)
-    image, width, height = fruits[name]
+    image, width, height = app.fruitData[name]
+    x0 = random.randint(100, 800)
+    y0 = app.height 
+    newFruit = Fruit(name, image, x0, y0, width, height)
+    app.unslicedFruits.append(newFruit)
+
+def challengeLoadNextFruit(app):
+    normalFruits = [fruit for fruit in app.fruitData if fruit not in ['flower', 'torch']]
+    name = random.choice(normalFruits)
+    image, width, height = app.fruitData[name]
     x0 = random.randint(100, 800)
     y0 = app.height 
     newFruit = Fruit(name, image, x0, y0, width, height)
@@ -175,13 +247,6 @@ def drawTrail(app):
                  fill=gradient('yellow', 'orange','fuchsia'), 
                  opacity=opacity, border='pink', borderWidth=2)
         
-def drawInstructions(app):
-    drawImage(app.playBG, 0, 0, width=app.width, height=app.height)
-    drawLabel('HOW TO PLAY:',470,95,font='caveat',size = 70,fill='saddleBrown',
-                border='saddleBrown',borderWidth=1)
-    drawSoundButton(app)
-    drawHomeButton(app) 
-
 def drawLives(app):
     for i in range(app.livesLeft):
         drawImage('Heart.png', 675 + i*40, 7, width=30, height=30)
@@ -195,6 +260,28 @@ def drawSlicedFruits(app):
                   width=fruit.leftHalf['width'], height=fruit.leftHalf['height'], 
                   opacity=fruit.leftHalf['opacity'], align='center', rotateAngle=fruit.leftHalf['rotate'])
 
+def drawFruitSplatters(app):
+    for fruit,x,y,opacity in app.fruitSplatters:
+        color = fruit.splatterColor()
+        image = f'{color}Splash.png'
+        drawImage(image,x,y,width=200,height=200,opacity=opacity,align='center')
+
+def drawScoredPoints(app):
+    for fruit,x,y,opacity in app.fruitSplatters:
+        drawLabel('+10',x,y,fill='yellowGreen',size=40, bold = True, font = 'caveat',opacity=opacity)
+
+def drawMissedFruits(app):
+    for x,y,opacity in app.missedFruits:
+        drawLabel('-5',x,y,fill='mediumVioletRed',size=50,bold=True,font='caveat',opacity=opacity)
+
+def drawExtraFruitHits(app):
+    for x,y,opacity in app.extraFruitHits:
+        drawLabel('+2',x,y,fill='mediumVioletRed',size=50,bold=True,font='caveat',opacity=opacity)
+
+def drawSloMoEffect(app):
+    drawRect(0, 0, app.width, app.height, fill='hotPink', opacity=25)
+    drawImage('sloMoBG.jpg', 0, 0, width=app.width, height=app.height, opacity=20)
+
 def drawGameOverScreen(app):
     drawRect(0,0,app.width,app.height,fill='orange',opacity=75)
     drawImage('flames.png', 0, 0, width=app.width, height=app.height,opacity=50)
@@ -206,11 +293,6 @@ def drawGameOverScreen(app):
                 border='saddleBrown',borderWidth=1)
     drawLabel("PRESS 'SPACE' TO RESTART",app.width/2,app.height/2+190,
               size=30,font='caveat',fill='saddleBrown', border='saddleBrown',borderWidth=1)
-    
-def drawSloMoEffect(app):
-    drawRect(0, 0, app.width, app.height, fill='hotPink', opacity=25)
-    drawImage('sloMoBG.jpg', 0, 0, width=app.width, height=app.height, opacity=20)
-
 
 def home_redrawAll(app):
     drawImage(app.beach,0,0,width=950,height=535)
@@ -323,6 +405,10 @@ def selectModes_redrawAll(app):
     drawRect(270,215,130,130,fill='lemonChiffon')
     drawCircle(335, 260, 10, fill=gradient('pink','mediumVioletRed', 'fuchsia'),
                 border='pink',borderWidth=2)
+    drawLabel('(MAKE SURE TO HAVE',150,425,font='caveat', fill = 'mediumVioletRed', size = 13, bold = True)
+    drawLabel('ONLY 1 HAND IN CAMERA FRAME',150,445,font='caveat', fill = 'mediumVioletRed', size = 13, bold = True)
+    drawLabel('& ONLY USE INDEX FINGER!)',150,465,font='caveat', fill = 'mediumVioletRed', size = 13, bold = True)
+    drawLine(150,415,150,385,arrowStart=True, fill = 'mediumVioletRed')
     drawImage('Cursor.png',325,260,width=60,height=60)
     drawRect(530,215,130,130,fill='lemonChiffon')
     drawImage('ClassicModeSelect.png',530,215,width=130,height=130)
@@ -332,7 +418,7 @@ def selectModes_redrawAll(app):
     drawRect(715,215,130,130,fill='lemonChiffon')
     drawImage('ChallengeModeSelect.png',715,215,width=130,height=130)
     drawImage('Stopwatch.png',810,250,width=30,height=30)
-    drawLabel("PRESS 'S' TO START!",470,430,font='caveat',size=40,fill='saddleBrown',border='saddleBrown',borderWidth=1)
+    drawLabel("PRESS 'SPACE' TO START!",470,430,font='caveat',size=40,fill='saddleBrown',border='saddleBrown',borderWidth=1)
     drawLabel('FINGER-TRACKING',150,360,font='caveat',fill=cameraModeColor,size=18, border=cameraModeColor,borderWidth=1)
     drawLabel('MOUSE',330,360,font='caveat',fill=mouseModeColor,size=23, border=mouseModeColor,borderWidth=1)
     drawLabel('CLASSIC',595,360,font='caveat',fill=classicModeColor,size=23, border=classicModeColor,borderWidth=1)
@@ -350,25 +436,28 @@ def selectModes_onMousePress(app,mouseX,mouseY):
         app.gameMode = 'challenge'
     elif inBounds(mouseX,mouseY,70,200, 160,180):
         app.controller = 'hand'
+        enableCamera(app)
     elif inBounds(mouseX,mouseY,255,200, 160,180):
         app.controller = 'mouse'
+        disableCamera(app)
 
 def selectModes_onMouseRelease(app,mouseX,mouseY):
     pass
 
 def selectModes_onKeyPress(app,key):
-    if key == 's':
-        gameMode = app.gameMode+'Mode'
-        if app.gameMode == 'challenge':
-            app.challengeWin = False
-            challengeRestart(app)
-        setActiveScreen(gameMode)
+    if key == 'space':
+        restart(app)
+        setActiveScreen('countdown')
+    
 
 def classicMode_redrawAll(app):
     drawImage(app.playBG,0,0,width=app.width,height=app.height)
+    drawFruitSplatters(app)
     for fruit in app.unslicedFruits:
         fruit.draw()
     drawSlicedFruits(app)
+    drawScoredPoints(app)
+    drawMissedFruits(app)
     drawRect(200,10,150,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
     drawLabel(f'HIGH: {app.highScore}',275,26,font='caveat',fill='lemonChiffon', size=22,border='lemonChiffon',borderWidth=1,align='center')
     drawRect(450,10,150,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
@@ -386,38 +475,13 @@ def classicMode_redrawAll(app):
     drawSoundButton(app)
     drawMenuButton(app)
 
-def classicMode_onMousePress(app,mouseX,mouseY):
-    if inBounds(mouseX,mouseY,830,10,100,35):
-        toggleSound(app)
-    elif inBounds(mouseX,mouseY,20,10,100,35):
-        setActiveScreen('selectModes')
-
-def classicMode_onMouseRelease(app,mouseX,mouseY):
-    pass
-
-def classicMode_onKeyPress(app,key):
-    if app.gameOver:
-        if key == 'space':
-            restart(app)
-
 def classicMode_onStep(app):
     app.steps += 1
     if app.controller == 'hand':
-        app.cx += (app.targetHandCoords[0] - app.cx) * 0.5
-        app.cy += (app.targetHandCoords[1] - app.cy) * 0.5
-        app.trail.append((app.cx, app.cy))
-        if len(app.trail) > 10:
-            app.trail.pop(0)
-        # lines 103-109 used AI (Gemini)
-        success, frame = app.cap.read()
-        if success:
-            frame = cv2.flip(frame, 1)
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-            timestamp_ms = int(time.time() * 1000)
-            app.detector.detect_async(mp_image, timestamp_ms)
-
+        updateHandTracking(app)
     updateSlicedFruits(app)
+    updateFruitSplatters(app)
+    updateMissedFruits(app)
     if not app.gameOver:
         if random.random() < app.spawnRate:
             loadNextFruit(app)
@@ -444,10 +508,9 @@ def classicMode_onStep(app):
                         fruit.rightHalf['dy'] = fruit.dy + 5
                         fruit.leftHalf['dy'] = fruit.dy + 5
                         app.slicedFruits.append(fruit)
+                        app.fruitSplatters.append([fruit,app.cx,app.cy,75])
                         app.score += 10
                         app.sliceSound.play()
-                    if app.score > app.highScore:
-                        app.highScore = app.score
         remaining = []
         for fruit in app.unslicedFruits:
             if fruit.isLegal(app) and not fruit.sliced:
@@ -455,10 +518,13 @@ def classicMode_onStep(app):
             else:
                 if not fruit.sliced and fruit.name not in ['torch', 'flower']:
                     app.score = max(0, app.score - 5)
+                    app.missedFruits.append([fruit.x,app.height-35,100])
         app.unslicedFruits = remaining
-    if (app.steps%app.stepsPerSecond == 0) and app.sloMo:
+    if app.score > app.highScore:
+        app.highScore = app.score
+    if app.sloMo:
         app.sloMoTimer += 1
-        if app.sloMoTimer == 2:
+        if app.sloMoTimer // app.stepsPerSecond == 3:
             app.sloMo = False
             app.sloMoTimer = 0
             app.sloMoFactor = 1
@@ -469,105 +535,95 @@ def classicMode_onStep(app):
             app.hitTorchTimer = 0
 
 def classicMode_onMouseMove(app,mouseX,mouseY):
-    if app.controller == 'mouse':
-        app.cx = mouseX
-        app.cy = mouseY
-        app.trail.append((mouseX,mouseY))
-        if len(app.trail) > 10:
-            app.trail.pop(0)
+    updateMouseMove(app,mouseX,mouseY)
+
+def classicMode_onMousePress(app,mouseX,mouseY):
+    if inBounds(mouseX,mouseY,830,10,100,35):
+        toggleSound(app)
+    elif inBounds(mouseX,mouseY,20,10,100,35):
+        setActiveScreen('selectModes')
+
+def classicMode_onMouseRelease(app,mouseX,mouseY):
+    pass
+
+def classicMode_onKeyPress(app,key):
+    if app.gameOver:
+        if key == 'space':
+            restart(app)
+    if key == 'z':
+        app.flowerSound.play()
+        app.sloMo = True
+        app.sloMoFactor = 0.5
+    elif key == 'enter':
+        app.gameOver = True
 
 def challengeMode_redrawAll(app):
     drawImage(app.playBG,0,0,width=app.width,height=app.height)
     drawImage('Stopwatch.png',835,50,width=95,height=95)
     drawLabel(str(app.challengeTimer),882,118,font='caveat',fill='deepPink',size=30,bold=True)
-    drawSoundButton(app)
-    drawMenuButton(app)
     for fruit in app.unslicedFruits:
         fruit.draw()
     drawSlicedFruits(app)
+    drawFruitSplatters(app)
+    drawExtraFruitHits(app)
     drawTrail(app)
     drawCircle(app.cx, app.cy, 8, fill=gradient('pink', 'mediumVioletRed', 'fuchsia'),
                border='pink', borderWidth=2)
     drawChallengeLeft(app)
     if app.gameOver:
         drawChallengeGameOver(app)    
-
-def challengeRestart(app):
-    app.cx, app.cy = app.width/2,app.height/2
-    app.targetHandCoords = [app.width/2,app.height/2]
-    app.trail = []
-    app.gameOver = False
-    app.unslicedFruits = []
-    app.slicedFruits = []
-    app.challengeTimer = 20
-    app.challengeStepCounter = 0
-    items = ['pineapple','dragonfruit','kiwi','coconut',
-             'orange','mango','banana']
-    app.targets = {name: random.randint(1,11) for name in items}
-    app.remaining = dict(app.targets)
+    drawSoundButton(app)
+    drawMenuButton(app)
 
 def challengeMode_onStep(app):
     app.steps += 1
     if app.controller == 'hand':
-        app.cx += (app.targetHandCoords[0] - app.cx) * 0.5
-        app.cy += (app.targetHandCoords[1] - app.cy) * 0.5
-        app.trail.append((app.cx,app.cy))
-        if len(app.trail) > 10:
-            app.trail.pop(0)
-        success, frame = app.cap.read()
-        if success:
-            frame = cv2.flip(frame, 1)
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-            timestamp_ms = int(time.time() * 1000)
-            app.detector.detect_async(mp_image, timestamp_ms)
+        updateHandTracking(app)
     updateSlicedFruits(app)
+    updateFruitSplatters(app)
+    updateExtraFruitHits(app)
     if not app.gameOver:
-        app.challengeStepCounter += 1
-        if app.challengeStepCounter >= app.stepsPerSecond:
-            app.challengeStepCounter = 0
-            app.challengeTimer -= 1
-            if app.challengeTimer <= 0:
+            app.challengeStepCounter += 1
+            if app.challengeStepCounter % app.stepsPerSecond == 0:
+                app.challengeTimer -= 1
+                if app.challengeTimer <= 0:
+                    app.gameOver = True
+            if random.random() < app.spawnRate:
+                challengeLoadNextFruit(app)
+            for fruit in app.unslicedFruits:
+                fruit.updatePosition(app)
+                if not fruit.sliced:
+                    if distance(app.cx,app.cy,fruit.x,fruit.y) < max(fruit.width,fruit.height)/2:
+                        fruit.sliced = True
+                        if fruit.name in app.remaining:
+                            if app.remaining[fruit.name] == 0:
+                                app.remaining[fruit.name] += 2 
+                                app.extraFruitHits.append([fruit.x+10,fruit.y+10,75])
+                                app.torchSound.play()
+                            else:
+                                app.remaining[fruit.name] -= 1
+                        fruit.rightHalf['x'] = fruit.x
+                        fruit.rightHalf['y'] = fruit.y
+                        fruit.leftHalf['x'] = fruit.x
+                        fruit.leftHalf['y'] = fruit.y
+                        fruit.rightHalf['dy'] = fruit.dy + 5
+                        fruit.leftHalf['dy'] = fruit.dy + 5
+                        app.slicedFruits.append(fruit)
+                        app.fruitSplatters.append([fruit,app.cx,app.cy,75])
+                        app.score += 10
+                        app.sliceSound.play()
+            app.unslicedFruits = [fruit for fruit in app.unslicedFruits
+                                if fruit.isLegal(app) and not fruit.sliced]
+            if all(v == 0 for v in app.remaining.values()):
                 app.gameOver = True
-    if random.random() < app.spawnRate:
-        challengeLoadNextFruit(app)
-    for fruit in app.unslicedFruits:
-        fruit.updatePosition(app)
-        if not fruit.sliced:
-            if distance(app.cx,app.cy,fruit.x,fruit.y) < max(fruit.width,fruit.height)/2:
-                fruit.sliced = True
-                if app.remaining.get(fruit.name,0) > 0:
-                    app.remaining[fruit.name] -= 1
-                fruit.rightHalf['x'] = fruit.x
-                fruit.rightHalf['y'] = fruit.y
-                fruit.leftHalf['x'] = fruit.x
-                fruit.leftHalf['y'] = fruit.y
-                fruit.rightHalf['dy'] = fruit.dy + 5
-                fruit.leftHalf['dy'] = fruit.dy + 5
-                app.slicedFruits.append(fruit)
-                app.score += 10
-                app.sliceSound.play()
-    app.unslicedFruits = [fruit for fruit in app.unslicedFruits
-                          if fruit.isLegal(app) and not fruit.sliced]
-    if all(v == 0 for v in app.remaining.values()):
-        app.gameOver = True
-        app.challengeWin = True
+                app.challengeWin = True
+            if app.gameOver:
+                if app.challengeWin:
+                    app.flowerSound.play()
+                else:
+                    app.challengeLoseSound.play()
 
-def challengeLoadNextFruit(app):
-    fruits = {'pineapple': ('Pineapple.png',100, 170), 
-              'dragonfruit': ('Dragonfruit.png', 80, 80), 
-              'kiwi': ('Kiwi.png', 70, 70),
-              'coconut': ('Coconut.png', 60, 60),
-              'orange': ('Orange.png', 70, 70),
-              'mango': ('Mango.png', 60, 80),
-              'banana': ('Banana.png',80, 80),}
-    name = random.choice(list(fruits.keys()))
-    image, width, height = fruits[name]
-    x0 = random.randint(100, 800)
-    y0 = app.height 
-    newFruit = Fruit(name, image, x0, y0, width, height)
-    app.unslicedFruits.append(newFruit)
-
+# Following function used AI to help create loop to draw fruits (Claude Sonnet 4.6)
 def drawChallengeLeft(app):
     fruits = ['pineapple', 'dragonfruit', 'kiwi', 'coconut', 
               'orange', 'mango', 'banana']
@@ -590,16 +646,17 @@ def drawChallengeLeft(app):
                   fill=color, border=color, borderWidth=1)
         
 def drawChallengeGameOver(app):
-    drawRect(0, 0, app.width, app.height, fill='orange', opacity=75)
-    win = getattr(app, 'challengeWin', False)
-    if win:
+    if app.challengeWin:
+        drawRect(0, 0, app.width, app.height, fill='hotPink', opacity=25)
+        drawImage('sloMoBG.jpg', 0, 0, width=app.width, height=app.height, opacity=20)
         drawLabel('YOU WIN!', app.width/2, app.height/2 - 60, size=150, 
                   font='caveat', fill='lemonChiffon', border='lemonChiffon', borderWidth=2)
     else:
-        drawLabel('TIME\'S UP!', app.width/2, app.height/2 - 60, size=150, 
-                  font='caveat', fill='saddleBrown', border='saddleBrown', borderWidth=2)
+        drawRect(0, 0, app.width, app.height, fill='mediumVioletRed', opacity=75)
+        drawLabel("TIME'S UP!", app.width/2, app.height/2 - 60, size=150, 
+                  font='caveat', fill='lemonChiffon', border='lemonChiffon', borderWidth=2)
     drawLabel("PRESS 'SPACE' TO RESTART", app.width/2, app.height/2 + 100,
-              size=30, font='caveat', fill='saddleBrown', border='saddleBrown', borderWidth=1)
+              size=30, font='caveat', fill='lemonChiffon', border='lemonChiffon', borderWidth=1)
     
 def challengeMode_onMousePress(app,mouseX,mouseY):
     if inBounds(mouseX,mouseY,830,10,100,35):
@@ -611,22 +668,79 @@ def challengeMode_onMouseRelease(app,mouseX,mouseY):
     pass
 
 def challengeMode_onMouseMove(app,mouseX,mouseY):
-    if app.controller == 'mouse':
-        app.cx = mouseX
-        app.cy = mouseY
-        app.trail.append((mouseX,mouseY))
-        if len(app.trail) > 10:
-            app.trail.pop(0)
+    updateMouseMove(app,mouseX,mouseY)
 
 def challengeMode_onKeyPress(app,key):
     if app.gameOver:
         if key == 'space':
-            challengeRestart(app)
+            restart(app)
+    if key == 'w':
+        app.flowerSound.play()
+        app.gameOver = True
+        app.challengeWin = True
+    elif key == 'l':
+        app.challengeLoseSound.play()
+        app.gameOver = True
+        app.challengeWin = False
+
+def countdown_redrawAll(app):
+    drawImage(app.playBG,0,0,width=app.width,height=app.height)
+    if app.gameMode == 'classic':
+        drawRect(200,10,150,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
+        drawLabel(f'HIGH: {app.highScore}',275,26,font='caveat',fill='lemonChiffon', size=22,border='lemonChiffon',borderWidth=1,align='center')
+        drawRect(450,10,150,35,fill='burlyWood',border='lemonChiffon',borderWidth=2)
+        drawLabel(f'{app.score}',525,26,font='caveat',fill='lemonChiffon', size=22,border='lemonChiffon',borderWidth=1,align='center')
+        drawLives(app)
+        drawLabel('CLASSIC MODE:',app.width/2,app.height/2-175,fill='mediumVioletRed',size = 50, font = 'caveat',
+                    border = 'mediumVioletRed', borderWidth = 1)
+        drawImage('Dragonfruit.png',100,150,width=150,height=175)
+        drawLabel('+10 PTS', 250,310,fill='yellowGreen',size =35,border='yellowGreen', borderWidth=1, font='caveat')
+        drawLabel('SLICE FRUITS TO SCORE', 175,360,fill='mediumVioletRed',size = 23, font='caveat')
+        drawLabel('(UNSLICED FRUITS = -5 PTS)', 175, 400, fill='mediumVioletRed',size =20,border='mediumVioletRed', borderWidth=1, font='caveat')
+        drawImage('Torch.png',380,150,width=200,height=225,rotateAngle = 45)
+        drawImage('RedCross.png',390,175,width =125,height = 125)
+        drawImage('Heart.png',505,300,width=30,height=30)
+        drawLabel('HIT TORCH = LOSE A LIFE',480,360,fill='mediumVioletRed',size = 23, font='caveat')
+        drawLine(490,315,500,315,lineWidth = 5, fill='red')
+        drawImage('Flower.png',675,170,width=140,height=140)
+        drawImage('Hourglass.png',780,265,width=50,height=65,rotateAngle=20)
+        drawLabel('0.5x',840,310,fill='mediumVioletRed',size =30,border='mediumVioletRed', borderWidth=1, font='caveat')
+        drawLabel('HIT FLOWER = 0.5x SPEED',750,360,fill='mediumVioletRed',size = 23, font='caveat')
+    else:
+        drawImage('Kiwi.png',115,150,width=125,height=125)
+        drawLabel('#', 175,300,fill='mediumVioletRed',size = 40, font='caveat',border= 'mediumVioletRed', borderWidth=1)
+        drawLabel('CUT THE # OF FRUITS', 175,360,fill='mediumVioletRed',size = 23, font='caveat')
+        drawLabel('BEFORE TIMER RUNS OUT', 175, 400, fill='mediumVioletRed',size =23,font='caveat')
+        drawImage('Dragonfruit.png',420,150,width=125,height=140,opacity=50)
+        drawLabel('-', 480,315,fill='limeGreen',size = 100, font='caveat',border= 'limeGreen', borderWidth=1)
+        drawLabel('ALL COUNTS 0 = YOU WIN!',480,360,fill='mediumVioletRed',size = 23, font='caveat')
+        drawImage('ChallengeModePenalty.png',665,165,width=180,height=165)
+        drawLabel('CUT FRUIT PAST COUNT', 750,360,size=23,font='caveat',fill='mediumVioletRed')
+        drawLabel('= +2 FRUIT COUNT', 750,400,size=23,border='mediumVioletRed', borderWidth=1, font='caveat',fill='mediumVioletRed')
+        drawImage('Stopwatch.png',835,50,width=95,height=95)
+        drawLabel(str(app.challengeTimer),882,118,font='caveat',fill='deepPink',size=30,bold=True)
+        drawChallengeLeft(app)
+    drawLabel(str(app.countdownTimer), app.width/2, 435, font='caveat',size=100, fill='mediumVioletRed', border='mediumVioletRed', borderWidth=2)
+    drawSoundButton(app)
+    drawMenuButton(app) 
+    
+def countdown_onStep(app):
+    app.countdownStepCounter += 1
+    if app.countdownStepCounter % app.stepsPerSecond == 0:
+        app.countdownTimer -= 1
+        if app.countdownTimer <= 0:
+            gameMode = f'{app.gameMode}Mode'
+            setActiveScreen(gameMode)
+
+def countdown_onMousePress(app,mouseX,mouseY):
+    if inBounds(mouseX,mouseY,830,10,100,35):
+        toggleSound(app)
+    elif inBounds(mouseX,mouseY,20,10,100,35):
+        setActiveScreen('selectModes')
+
+def countdown_onMouseRelease(app,mouseX,mouseY):
     pass
         
-def challengeMode_onKeyRelease(app,keys):
-    pass
-
 def main():
     runAppWithScreens(initialScreen='home', width=950, height=535)
 main()
