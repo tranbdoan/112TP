@@ -1,3 +1,13 @@
+"""
+- Updating sliced fruits halves
+- Increasing difficulty in load next fruit function (chagining probabilities of torch appearance)
+- Updating fruit positions using kinematics
+- Able to toggle between different modes/controller 
+- Penalty feature in challenge mode
+- press z in classic mode to activate sloMo effect and press enter for game over
+- press w in chalenge mode to have game over (you win) and l in challenge mode to have game over (you lose)
+"""
+
 from cmu_graphics import * 
 import random
 # Used AI (Gemini 3.0) to help write lines 4-8 for camera tracking setup
